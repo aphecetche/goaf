@@ -76,21 +76,17 @@ func (fi FileInfo) DataType() string {
 	return dt
 }
 
-func (fi FileInfo) IsGene() bool {
-
-}
-
 func (fi FileInfo) FileName() string {
 	sp := fi.SplitPath()
 	return sp[len(sp)-1]
 }
 
 func (fi FileInfo) IsGene() bool {
-	return strings.Contains(fi.FileName, "pyxsec")
+	return strings.Contains(fi.FileName(), "pyxsec")
 }
 
 func (fi FileInfo) IsQA() bool {
-	return strings.Contains(fi.FileName, "QA")
+	return strings.Contains(fi.FileName(), "QA")
 }
 
 func (fi FileInfo) IsFiltered() bool {
