@@ -1,0 +1,223 @@
+// Copyright © 2016 Laurent Aphecetche
+// {{ .copyright }}
+//
+//  This file is part of {{ .appName }}.
+//
+//  {{ .appName }} is free software: you can redistribute it and/or modify
+//  it under the terms of the GNU Lesser General Public License as published by
+//  the Free Software Foundation, either version 3 of the License, or
+//  (at your option) any later version.
+//
+//  {{ .appName }} is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU Lesser General Public License for more details.
+//
+//  You should have received a copy of the GNU Lesser General Public License
+//  along with {{ .appName }}. If not, see <http://www.gnu.org/licenses/>.
+//
+
+package cmd
+
+import (
+	"bufio"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/spf13/cobra"
+)
+
+// reportCmd represents the report command
+var reportCmd = &cobra.Command{
+	Use:   "report",
+	Short: "Generate HTML reports",
+	Long:  `Generate HTML reports of various forms, e.g. pies, treemap, etc...`,
+	Run:   report,
+}
+
+// Report generates HTML pages
+func report(cmd *cobra.Command, args []string) {
+	// getFileInfoList()
+	// getfilelist2()
+	getfilelist1()
+}
+
+func timeTrack(start time.Time, name string) {
+	elapsed := time.Since(start)
+	log.Printf("%s took %s", name, elapsed)
+}
+
+// Get the file list, in one go
+func getfilelist2() {
+	defer timeTrack(time.Now(), "getfilelist2")
+	dir := fmt.Sprintf("%s/%s", directory, pattern)
+
+	files, err := filepath.Glob(dir)
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	var lines []string
+
+	lines = make([]string, 10)
+
+	for _, file := range files {
+		l, _ := readfile(file)
+		lines = append(lines, l...)
+	}
+
+	fmt.Printf("number of lines : %d\n", len(lines))
+}
+
+// Get the file list, using one go routine per file, no channels
+func getfilelist1() {
+
+	defer timeTrack(time.Now(), "getfilelist1")
+
+	dir := fmt.Sprintf("%s/%s", directory, pattern)
+
+	files, err := filepath.Glob(dir)
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	var filelines [][]string
+	var lines []string
+
+	lines = make([]string, 10)
+
+	filelines = make([][]string, len(files))
+
+	var wg sync.WaitGroup
+
+	for i, file := range files {
+		//defer timeTrack(time.Now(), fmt.Sprintf("loop %v", i))
+		wg.Add(1)
+		go func(i int, file string) {
+			defer wg.Done()
+			filelines[i], _ = readfile(file)
+		}(i, file)
+	}
+	wg.Wait()
+
+	for i := range files {
+		lines = append(lines, filelines[i]...)
+	}
+
+	log.Printf("getfilelist1 : number of lines : %d\n", len(lines))
+
+}
+
+// Get the file list, reading the files  using channels
+func getFileInfoList() {
+
+	defer timeTrack(time.Now(), "getFileInfoList")
+
+	dir := fmt.Sprintf("%s/%s", directory, pattern)
+
+	files, err := filepath.Glob(dir)
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	filelines := []string{}
+
+	c := make(chan []string)
+
+	for _, f := range files {
+		go func(f string) { c <- readfilenoerr(f) }(f)
+	}
+
+	for range files {
+		result := <-c
+		filelines = append(filelines, result...)
+	}
+
+	log.Printf("getFileInfoList : number of lines : %d\n", len(filelines))
+}
+
+var directory string
+var pattern string
+var prefix string
+var wg3 sync.WaitGroup
+
+// The init function defines the flags we use for this command
+func init() {
+	RootCmd.AddCommand(reportCmd)
+	reportCmd.PersistentFlags().StringVarP(&directory, "directory", "d", "", "source directory where to find the file lists")
+	reportCmd.PersistentFlags().StringVarP(&pattern, "filepattern", "f", "", "starting part of the filenames to look for into directory")
+	reportCmd.PersistentFlags().StringVarP(&prefix, "prefix", "p", "/data", "prefix to strip from the fullpath of the results of the find command")
+}
+
+type fileinfo struct {
+	size uint64
+	//time time_t
+	fullPath string
+	hostName string
+}
+
+func readFileLineByLine(path string) <-chan string { // returns a receive-only channel of string
+
+	c := make(chan string)
+
+	go func() {
+
+		inFile, _ := os.Open(path)
+		defer inFile.Close()
+		defer wg3.Done()
+
+		scanner := bufio.NewScanner(inFile)
+
+		for scanner.Scan() {
+			c <- scanner.Text()
+		}
+
+	}()
+
+	return c
+}
+
+// Read a file and store it into a string slice
+func readfile(filename string) ([]string, error) {
+
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	return lines, nil
+}
+
+// Read a file and store it into a string slice
+func readfilenoerr(filename string) []string {
+
+	lines := []string{}
+
+	inFile, _ := os.Open(filename)
+	defer inFile.Close()
+
+	scanner := bufio.NewScanner(inFile)
+
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	return lines
+	// content, err := ioutil.ReadFile(filename)
+	// if err != nil {
+	// 	return nil
+	// }
+	//
+	// lines := strings.Split(string(content), "\n")
+	// return lines
+}
