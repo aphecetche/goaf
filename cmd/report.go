@@ -99,7 +99,7 @@ func (b Bag) NumberOfFiles() int {
 
 func (b Bag) Show() {
 	name := b.tag
-	if len(b.v) > 1 {
+	if len(b.v) > 1 && name[len(name)-1] != 'S' {
 		name += "s"
 	}
 	fmt.Printf("--- %d %s - %d files - %7.2f GB\n", len(b.v), strings.ToUpper(name),
@@ -144,11 +144,12 @@ func report(cmd *cobra.Command, args []string) {
 			os.Exit(42)
 		}
 
-		pass := period
-		period += "/"
-		period += pass
-
-		passes.Add(pass, f)
+		if len(f.Pass()) > 0 {
+			pass := period
+			pass += "/"
+			pass += f.Pass()
+			passes.Add(pass, f)
+		}
 
 		hosts.Add(f.Host(), f)
 

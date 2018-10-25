@@ -40,8 +40,8 @@ func (fi FileInfo) Host() string {
 
 func Dump(f FileInfo) {
 	fmt.Printf("\n%v\n", f)
-	fmt.Printf("run=%09d data=%v sim=%v period=%v pass=%v isuser=%v user=%s israw=%v isesd=%v isaod=%v\n", f.RunNumber(), f.IsData(), f.IsSim(), f.Period(), f.Pass(), f.IsUser(), f.UserName(), f.IsRaw(),
-		f.IsESD(), f.IsAOD())
+	fmt.Printf("run=%09d data=%v sim=%v period=%v pass=%v isuser=%v user=%s israw=%v isesd=%v isaod=%v isgroup=%v\n", f.RunNumber(), f.IsData(), f.IsSim(), f.Period(), f.Pass(), f.IsUser(), f.UserName(), f.IsRaw(),
+		f.IsESD(), f.IsAOD(), f.IsGroup())
 }
 func (fi FileInfo) String() string {
 	return fmt.Sprintf("{path:%s host:[%s] size:(%d) mod:%s acc:%s}", fi.path, fi.host, fi.size, intToDate(fi.lastmod), intToDate(fi.lastacc))
@@ -57,6 +57,9 @@ func (fi FileInfo) DataType() string {
 	}
 	if fi.IsUser() {
 		dt += "USER-"
+	}
+	if fi.IsGroup() {
+		dt += "GROUP-"
 	}
 	if fi.IsESD() {
 		dt += "ESD"
@@ -79,6 +82,11 @@ func (fi FileInfo) DataType() string {
 func (fi FileInfo) FileName() string {
 	sp := fi.SplitPath()
 	return sp[len(sp)-1]
+}
+
+func (fi FileInfo) IsGroup() bool {
+	sp := fi.SplitPath()
+	return strings.HasPrefix(sp[1], "PWG")
 }
 
 func (fi FileInfo) IsGene() bool {
@@ -142,7 +150,11 @@ func (fi FileInfo) Pass() string {
 	parts := fi.SplitPath()
 	for i, p := range parts {
 		if isPeriod(p) {
-			return parts[i+2]
+			pass := parts[i+2]
+			if strings.HasPrefix(parts[i+3], "AOD") {
+				pass += "/" + parts[i+3]
+			}
+			return pass
 		}
 	}
 	return ""
@@ -189,6 +201,10 @@ func (fig FileInfoGroup) Size() int64 {
 	return fig.size
 }
 
+func (fig FileInfoGroup) SizeInGB() float32 {
+	return float32(fig.size) / 1024 / 1024 / 1024
+}
+
 func (fig FileInfoGroup) Label() string {
 	return fig.label
 }
@@ -199,6 +215,5 @@ func (fig *FileInfoGroup) AppendFileInfo(fi FileInfo) {
 }
 
 func (fig FileInfoGroup) String() string {
-	psize := fig.Size()
-	return fmt.Sprintf("%20s has %6d files and is %7.2f GB", fig.Label(), len(fig.FileInfoSlice), float64(psize)/1024/1024/1024)
+	return fmt.Sprintf("%30s : %7.2f GB (%6d files)", fig.Label(), fig.SizeInGB(), len(fig.FileInfoSlice))
 }
