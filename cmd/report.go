@@ -25,7 +25,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,127 +42,114 @@ var reportCmd = &cobra.Command{
 	Run:   report,
 }
 
-type Bag struct {
-	m   map[string]*fstat.FileInfoGroup
-	v   []*fstat.FileInfoGroup
-	tag string
-}
+func removeDuplicates(elements []int) []int {
+	// Use map to record duplicates as we find them.
+	encountered := map[int]bool{}
+	result := []int{}
 
-func NewBag(tag string) *Bag {
-	m := make(map[string]*fstat.FileInfoGroup)
-	v := []*fstat.FileInfoGroup{}
-	return &Bag{m, v, tag}
-}
-
-func (b *Bag) Add(label string, fi fstat.FileInfo) {
-	fig, ok := b.m[label]
-	if !ok {
-		fig = fstat.NewFileInfoGroup(fstat.FileInfoSlice{}, label)
-		b.m[label] = fig
-		b.v = append(b.v, fig)
+	for v := range elements {
+		if encountered[elements[v]] == true {
+			// Do not add duplicate.
+		} else {
+			// Record this element as an encountered element.
+			encountered[elements[v]] = true
+			// Append to result slice.
+			result = append(result, elements[v])
+		}
 	}
-	fig.AppendFileInfo(fi)
+	// Return the new slice.
+	return result
 }
 
-func (b *Bag) SortBySize() {
-	sort.Slice(b.v, func(i, j int) bool {
-		return b.v[i].Size() < b.v[j].Size()
-	})
-}
+// Report duplicate files
+func reportDuplicates(fis fstat.FileInfoSlice) {
 
-func (b Bag) Print() {
-	for _, fig := range b.v {
-		fmt.Printf("%v\n", fig)
+	defer TimeTrack(time.Now(), "reportDuplicates")
+
+	encountered := map[string]int{}
+
+	for _, h := range fis {
+		encountered[h.Path()]++
+	}
+
+	for h := range encountered {
+		if encountered[h] > 1 {
+			fmt.Printf("%s appears %d times\n", h, encountered[h]-1)
+		}
 	}
 }
 
-func (b Bag) Size() int64 {
-	var size int64 = 0
-	for _, fig := range b.v {
-		size += fig.Size()
-	}
-	return size
-}
+func reportGroups(fis fstat.FileInfoSlice) {
 
-func (b Bag) SizeInGB() float32 {
-	return (float32)(b.Size()) / 1024 / 1024 / 1024
-}
+	defer TimeTrack(time.Now(), "reportGroups")
 
-func (b Bag) NumberOfFiles() int {
-	n := 0
-	for _, fig := range b.v {
-		n += len(fig.FileInfoSlice)
-	}
-	return n
-}
+	simperiods := fstat.NewBag("SIM-PERIOD")
+	dataperiods := fstat.NewBag("DATA-PERIOD")
+	datatype := fstat.NewBag("DATA-TYPE")
+	hosts := fstat.NewBag("HOST")
+	passes := fstat.NewBag("PASS")
 
-func (b Bag) Show() {
-	name := b.tag
-	if len(b.v) > 1 && name[len(name)-1] != 'S' {
-		name += "s"
+	bags := []*fstat.Bag{simperiods, dataperiods, hosts, datatype, passes}
+
+	for i := 0; i < len(fis); i++ {
+
+		period := fis[i].Period()
+
+		if len(period) == 0 && !fis[i].IsUser() {
+			fstat.Dump(fis[i])
+			continue
+		}
+
+		if fis[i].IsSim() {
+			simperiods.Add(period, &fis[i])
+		}
+		if fis[i].IsData() {
+			dataperiods.Add(period, &fis[i])
+		}
+
+		dt := fis[i].DataType()
+
+		datatype.Add(dt, &fis[i])
+
+		if dt == "ESD" || dt == "SIM-" || dt == "DATA-" {
+			fstat.Dump(fis[i])
+			os.Exit(42)
+		}
+
+		if len(fis[i].Pass()) > 0 {
+			pass := period
+			pass += "/"
+			pass += fis[i].Pass()
+			passes.Add(pass, &fis[i])
+		}
+
+		hosts.Add(fis[i].Host(), &fis[i])
 	}
-	fmt.Printf("--- %d %s - %d files - %7.2f GB\n", len(b.v), strings.ToUpper(name),
-		b.NumberOfFiles(), b.SizeInGB())
-	b.SortBySize()
-	b.Print()
+
+	hostnames := hosts.HostNames()
+
+	for i := 0; i < len(bags); i++ {
+		if bags[i].Tag() == "PASS" {
+			bags[i].Show(hostnames)
+		} else {
+			bags[i].Show([]string{})
+		}
+	}
 }
 
 // Report generates HTML pages
 func report(cmd *cobra.Command, args []string) {
 
 	fileinfos := getInfos(getFileLines())
+
+	reportGroups(fileinfos)
+
 	all := fstat.NewFileInfoGroup(fileinfos, "all")
-
-	simperiods := NewBag("SIM-PERIOD")
-	dataperiods := NewBag("DATA-PERIOD")
-	datatype := NewBag("DATA-TYPE")
-	hosts := NewBag("HOST")
-	passes := NewBag("PASS")
-
-	bags := []*Bag{simperiods, dataperiods, hosts, datatype, passes}
-
-	for _, f := range fileinfos {
-
-		period := f.Period()
-
-		if len(period) == 0 && !f.IsUser() {
-			fstat.Dump(f)
-			continue
-		}
-
-		if f.IsSim() {
-			simperiods.Add(period, f)
-		}
-		if f.IsData() {
-			dataperiods.Add(period, f)
-		}
-		datatype.Add(f.DataType(), f)
-
-		if f.DataType() == "ESD" || f.DataType() == "SIM-" || f.DataType() == "DATA-" {
-			fstat.Dump(f)
-			os.Exit(42)
-		}
-
-		if len(f.Pass()) > 0 {
-			pass := period
-			pass += "/"
-			pass += f.Pass()
-			passes.Add(pass, f)
-		}
-
-		hosts.Add(f.Host(), f)
-
-	}
-
 	size := all.Size()
-
 	fmt.Printf("%v\n", all)
 	fmt.Printf("Total size %d (%d GB)\n", size, size/1024/1024/1024)
 
-	for _, b := range bags {
-		b.Show()
-	}
-
+	reportDuplicates(fileinfos)
 }
 
 func parseInfo(line string) *fstat.FileInfo {
@@ -172,21 +158,21 @@ func parseInfo(line string) *fstat.FileInfo {
 	lastacc, _ := strconv.ParseInt(s[1], 10, 64)
 	size, _ := strconv.ParseInt(s[2], 10, 64)
 	path := strings.Replace(s[3], prefix, "", 1)
-	host := s[4]
+	host := strings.Replace(s[4], "SAF-", "", 1)
 	return fstat.NewFileInfo(size, path, host, lastmod, lastacc)
 }
 
 func getInfos(lines []string) fstat.FileInfoSlice {
-	defer timeTrack(time.Now(), "getInfos")
+	defer TimeTrack(time.Now(), "getInfos")
 
 	fileinfos := make(fstat.FileInfoSlice, len(lines))
-	for i, l := range lines {
-		fileinfos[i] = *parseInfo(l)
+	for i := 0; i < len(lines); i++ {
+		fileinfos[i] = *parseInfo(lines[i])
 	}
 	return fileinfos
 }
 
-func timeTrack(start time.Time, name string) {
+func TimeTrack(start time.Time, name string) {
 	elapsed := time.Since(start)
 	log.Printf("%s took %s", name, elapsed)
 }
@@ -194,7 +180,7 @@ func timeTrack(start time.Time, name string) {
 // Get the file list, using one go routine per file, no channels
 func getFileLines() []string {
 
-	defer timeTrack(time.Now(), "getfilelist1")
+	defer TimeTrack(time.Now(), "getfilelist1")
 
 	dir := fmt.Sprintf("%s/%s", directory, pattern)
 

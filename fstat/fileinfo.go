@@ -15,10 +15,27 @@ type FileInfo struct {
 	host    string
 	lastmod int64
 	lastacc int64
+
+	parts     []string
+	israw     bool
+	pass      string
+	runNumber int
+	period    string
 }
 
 func NewFileInfo(size int64, path, hostname string, lastmod, lastacc int64) *FileInfo {
-	return &FileInfo{size, path, hostname, lastmod, lastacc}
+	fi := FileInfo{size: size, path: path, host: hostname, lastmod: lastmod, lastacc: lastacc}
+
+	fi.parts = strings.Split(path, "/")
+	fi.buildPass()
+	fi.buildRunNumber()
+	fi.buildPeriod()
+	fi.buildIsRaw()
+	return &fi
+}
+
+func (fi FileInfo) Path() string {
+	return fi.path
 }
 
 func isPeriod(s string) bool {
@@ -43,6 +60,17 @@ func Dump(f FileInfo) {
 	fmt.Printf("run=%09d data=%v sim=%v period=%v pass=%v isuser=%v user=%s israw=%v isesd=%v isaod=%v isgroup=%v\n", f.RunNumber(), f.IsData(), f.IsSim(), f.Period(), f.Pass(), f.IsUser(), f.UserName(), f.IsRaw(),
 		f.IsESD(), f.IsAOD(), f.IsGroup())
 }
+
+func IsSameFile(a, b *FileInfo) bool {
+	if len(a.path) != len(b.path) {
+		return false
+	}
+	if a.path == b.path {
+		return true
+	}
+	return false
+}
+
 func (fi FileInfo) String() string {
 	return fmt.Sprintf("{path:%s host:[%s] size:(%d) mod:%s acc:%s}", fi.path, fi.host, fi.size, intToDate(fi.lastmod), intToDate(fi.lastacc))
 }
@@ -80,13 +108,11 @@ func (fi FileInfo) DataType() string {
 }
 
 func (fi FileInfo) FileName() string {
-	sp := fi.SplitPath()
-	return sp[len(sp)-1]
+	return fi.parts[len(fi.parts)-1]
 }
 
 func (fi FileInfo) IsGroup() bool {
-	sp := fi.SplitPath()
-	return strings.HasPrefix(sp[1], "PWG")
+	return strings.HasPrefix(fi.parts[1], "PWG")
 }
 
 func (fi FileInfo) IsGene() bool {
@@ -101,10 +127,6 @@ func (fi FileInfo) IsFiltered() bool {
 	return strings.Contains(fi.path, "FILTER")
 }
 
-func (fi FileInfo) SplitPath() []string {
-	return strings.Split(fi.path, "/")
-}
-
 func (fi FileInfo) IsESD() bool {
 	return strings.Contains(fi.path, "AliESD")
 }
@@ -114,12 +136,16 @@ func (fi FileInfo) IsAOD() bool {
 }
 
 func (fi FileInfo) IsRaw() bool {
-	for _, p := range fi.SplitPath() {
+	return fi.israw
+}
+
+func (fi *FileInfo) buildIsRaw() {
+	fi.israw = false
+	for _, p := range fi.parts {
 		if p == "raw" && !fi.IsESD() && !fi.IsAOD() {
-			return true
+			fi.israw = true
 		}
 	}
-	return false
 }
 
 func (fi FileInfo) IsUser() bool {
@@ -143,42 +169,53 @@ func (fi FileInfo) IsSim() bool {
 }
 
 func (fi FileInfo) Pass() string {
-	if !fi.IsData() {
-		return ""
-	}
-
-	parts := fi.SplitPath()
-	for i, p := range parts {
-		if isPeriod(p) {
-			pass := parts[i+2]
-			if strings.HasPrefix(parts[i+3], "AOD") {
-				pass += "/" + parts[i+3]
-			}
-			return pass
-		}
-	}
-	return ""
+	return fi.pass
 }
 
+func (fi *FileInfo) buildPass() {
+	fi.pass = ""
+	if !fi.IsData() {
+		return
+	}
+
+	for i, p := range fi.parts {
+		if isPeriod(p) {
+			fi.pass = fi.parts[i+2]
+			if strings.HasPrefix(fi.parts[i+3], "AOD") {
+				fi.pass += "/" + fi.parts[i+3]
+			}
+			return
+		}
+	}
+}
 func (fi FileInfo) RunNumber() int {
-	for _, p := range fi.SplitPath() {
+	return fi.runNumber
+}
+
+func (fi *FileInfo) buildRunNumber() {
+	fi.runNumber = -1
+	for _, p := range fi.parts {
 		if len(p) != 9 && len(p) != 6 {
 			continue
 		}
 		if n, err := strconv.Atoi(p); err == nil {
-			return n
+			fi.runNumber = n
 		}
 	}
-	return -1
 }
 
 func (fi FileInfo) Period() string {
-	for _, p := range fi.SplitPath() {
+	return fi.period
+}
+
+func (fi *FileInfo) buildPeriod() {
+	fi.period = ""
+	for _, p := range fi.parts {
 		if isPeriod(p) {
-			return p
+			fi.period = p
+			return
 		}
 	}
-	return ""
 }
 
 type FileInfoSlice []FileInfo
@@ -209,11 +246,38 @@ func (fig FileInfoGroup) Label() string {
 	return fig.label
 }
 
-func (fig *FileInfoGroup) AppendFileInfo(fi FileInfo) {
-	fig.FileInfoSlice = append(fig.FileInfoSlice, fi)
+func (fig *FileInfoGroup) AppendFileInfo(fi *FileInfo) {
+	fig.FileInfoSlice = append(fig.FileInfoSlice, *fi)
 	fig.size += fi.Size()
 }
 
 func (fig FileInfoGroup) String() string {
-	return fmt.Sprintf("%30s : %7.2f GB (%6d files)", fig.Label(), fig.SizeInGB(), len(fig.FileInfoSlice))
+	return fmt.Sprintf("%30s : %7.2f GB (%6d files) %4.0f days", fig.Label(), fig.SizeInGB(), len(fig.FileInfoSlice), fig.AgeInDays())
+}
+
+// AgeInDays returns the mean number of days since the creation
+// of the file group
+func (fig FileInfoGroup) AgeInDays() float64 {
+	var d int64 = 0
+	for _, f := range fig.FileInfoSlice {
+		d += f.lastmod
+	}
+	d /= int64(len(fig.FileInfoSlice))
+	t := time.Unix(d, 0)
+	return time.Since(t).Hours() / 24
+}
+
+func (fig FileInfoGroup) SplitByHost(hosts []string) []*FileInfoGroup {
+	return nil
+	// bh := make([]*FileInfoGroup, len(hosts))
+	// for i, h := range hosts {
+	// 	fi := FileInfoSlice{}
+	// 	for _, f := range fig.FileInfoSlice {
+	// 		if f.Host() == h {
+	// 			fi = append(fi, f)
+	// 		}
+	// 	}
+	// 	bh[i] = NewFileInfoGroup(fi, h)
+	// }
+	// return bh
 }
