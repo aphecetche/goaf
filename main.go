@@ -23,20 +23,21 @@ import (
 	"log"
 	"os"
 	"runtime/pprof"
+	"time"
 
 	"github.com/aphecetche/goaf/cmd"
 )
 
 func main() {
-	// fcpu, err := os.Create("cpu.prof")
-	// if err != nil {
-	// 	log.Fatal("could not create CPU profile: ", err)
-	// }
-	// if err := pprof.StartCPUProfile(fcpu); err != nil {
-	// 	log.Fatal("could not start CPU profile: ", err)
-	// }
-	// defer pprof.StopCPUProfile()
-	//	defer cmd.TimeTrack(time.Now(), "main")
+	fcpu, err := os.Create("cpu.prof")
+	if err != nil {
+		log.Fatal("could not create CPU profile: ", err)
+	}
+	if err := pprof.StartCPUProfile(fcpu); err != nil {
+		log.Fatal("could not start CPU profile: ", err)
+	}
+	defer pprof.StopCPUProfile()
+	defer cmd.TimeTrack(time.Now(), "main")
 
 	cmd.Execute()
 
