@@ -268,16 +268,15 @@ func (fig FileInfoGroup) AgeInDays() float64 {
 }
 
 func (fig FileInfoGroup) SplitByHost(hosts []string) []*FileInfoGroup {
-	return nil
-	// bh := make([]*FileInfoGroup, len(hosts))
-	// for i, h := range hosts {
-	// 	fi := FileInfoSlice{}
-	// 	for _, f := range fig.FileInfoSlice {
-	// 		if f.Host() == h {
-	// 			fi = append(fi, f)
-	// 		}
-	// 	}
-	// 	bh[i] = NewFileInfoGroup(fi, h)
-	// }
-	// return bh
+	bh := make([]*FileInfoGroup, len(hosts))
+	for i, h := range hosts {
+		fi := FileInfoSlice{}
+		for _, f := range fig.FileInfoSlice {
+			if f.Host() == h {
+				fi = append(fi, f)
+			}
+		}
+		bh[i] = NewFileInfoGroup(fi, h)
+	}
+	return bh
 }
