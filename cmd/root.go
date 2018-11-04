@@ -31,14 +31,14 @@ var cfgFile string
 
 // This represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "aafu",
+	Use:   "goaf",
 	Short: "A lightweight application to interact with an AAF",
 	Long: `Helper application to interact with an Alice Analysis Facility, in particular
 the SAF.
 
 Typical usages are :
 
-- generation of HTML reports
+- generation of textual reports
 - status of staging
 	`,
 	// Uncomment the following line if your bare application
@@ -62,10 +62,10 @@ func init() {
 	// Cobra supports Persistent Flags, which, if defined here,
 	// will be global for your application.
 
-	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.aafu.yaml)")
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.goaf.yaml)")
+	// // Cobra also supports local flags, which will only run
+	// // when this action is called directly.
+	// RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -74,7 +74,7 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 	}
 
-	viper.SetConfigName(".aafu") // name of config file (without extension)
+	viper.SetConfigName(".goaf") // name of config file (without extension)
 	viper.AddConfigPath("$HOME") // adding home directory as first search path
 	viper.AutomaticEnv()         // read in environment variables that match
 

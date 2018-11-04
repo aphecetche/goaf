@@ -37,8 +37,8 @@ import (
 // reportCmd represents the report command
 var reportCmd = &cobra.Command{
 	Use:   "report",
-	Short: "Generate HTML reports",
-	Long:  `Generate HTML reports of various forms, e.g. pies, treemap, etc...`,
+	Short: "Generate reports",
+	Long:  `Generate reports of various forms, e.g. pies, treemap, etc...`,
 	Run:   report,
 }
 
