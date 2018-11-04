@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 
+	"github.com/aphecetche/goaf/fstat"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -20,11 +23,19 @@ var stageCmd = &cobra.Command{
 }
 
 func addToStore(db *bolt.DB, servers []string, files map[string][]string) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
 	for _, server := range servers {
 		db.Update(func(tx *bolt.Tx) error {
 			b := tx.Bucket([]byte(server))
 			for _, file := range files[server] {
-				err := b.Put([]byte(file), []byte(filterFlag))
+				fi := fstat.NewFileInfoBare(file, server)
+				buf.Reset()
+				err := enc.Encode(fi)
+				if err != nil {
+					log.Fatal("encode error:", err)
+				}
+				err = b.Put([]byte(file), buf.Bytes())
 				if err != nil {
 					return fmt.Errorf("insert file: %s", err)
 				}
@@ -54,17 +65,44 @@ func getDB(servers []string) *bolt.DB {
 	return db
 }
 
-func request() {
+func showRequest() {
 
-	servers := viper.GetStringSlice("servers")
+	for _, server := range servers {
+		db.View(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte(server))
 
-	db := getDB(servers)
-	defer db.Close()
+			c := b.Cursor()
 
-	files := readRequest(requestFlag, servers)
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				buf := bytes.NewReader(v)
+				dec := gob.NewDecoder(buf)
+				var fi fstat.FileInfo
+				err := dec.Decode(&fi)
+				if err != nil {
+					fmt.Printf("key=%s err=%s", k, err)
+					log.Fatal()
+				}
+				fmt.Printf("key=%s, value=%v\n", k, fi)
+			}
+
+			return nil
+		})
+	}
+}
+
+func addRequest() {
+
+	files := readRequest(addRequestFlag, servers)
 
 	addToStore(db, servers, files)
 
+}
+
+func buildFileName(file, filter, aliphysics string) string {
+	if len(filter) == 0 {
+		return file
+	}
+	return fmt.Sprintf("%s.FILTER_%s_WITH_ALIPHYSICS_%s.root", strings.TrimSuffix(file, ".root"), filter, aliphysics)
 }
 
 func readRequest(filelist string, servers []string) map[string][]string {
@@ -87,7 +125,7 @@ func readRequest(filelist string, servers []string) map[string][]string {
 	for scanner.Scan() {
 		key := strings.Trim(scanner.Text(), " ")
 		if strings.HasPrefix(key, "/alice") {
-			files[servers[n]] = append(files[servers[n]], key)
+			files[servers[n]] = append(files[servers[n]], buildFileName(key, filterFlag, aliphysicsFlag))
 			n++
 			if n == len(servers) {
 				n = 0
@@ -103,18 +141,29 @@ func readRequest(filelist string, servers []string) map[string][]string {
 }
 
 func stage(cmd *cobra.Command, args []string) {
-	if len(requestFlag) > 0 {
-		request()
+	servers = viper.GetStringSlice("servers")
+	db = getDB(servers)
+	defer db.Close()
+
+	if len(addRequestFlag) > 0 {
+		addRequest()
+	}
+	if showRequestFlag {
+		showRequest()
 	}
 }
 
-var requestFlag string
+var addRequestFlag string
+var showRequestFlag bool
 var filterFlag string
 var aliphysicsFlag string
+var servers []string
+var db *bolt.DB
 
 func init() {
 	RootCmd.AddCommand(stageCmd)
-	stageCmd.PersistentFlags().StringVarP(&requestFlag, "add-request", "r", "", "filelist of the files to be requestd")
-	stageCmd.PersistentFlags().StringVarP(&filterFlag, "with-filter", "f", "NONE", "filter to be used")
+	stageCmd.PersistentFlags().StringVarP(&addRequestFlag, "add-request", "r", "", "filelist of the files to be requestd")
+	stageCmd.PersistentFlags().StringVarP(&filterFlag, "with-filter", "f", "", "filter to be used")
 	stageCmd.PersistentFlags().StringVarP(&aliphysicsFlag, "with-aliphysics", "a", "v5-09-39-01-1", "AliPhysics version to be used")
+	stageCmd.PersistentFlags().BoolVarP(&showRequestFlag, "show-request", "s", false, "show pending staging requests")
 }
