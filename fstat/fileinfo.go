@@ -2,9 +2,7 @@ package fstat
 
 import (
 	"bytes"
-	"encoding/gob"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -26,51 +24,46 @@ type FileInfo struct {
 	period    string
 }
 
-type PrivateFileInfo struct {
-	Size, LastMod, LastAcc int64
-	Path, Host             string
-}
-
 func (fi FileInfo) GobEncode() ([]byte, error) {
 	var b bytes.Buffer
-	enc := gob.NewEncoder(&b)
-	err := enc.Encode(PrivateFileInfo{Size: fi.size, LastMod: fi.lastmod, LastAcc: fi.lastacc, Path: fi.path, Host: fi.host})
-	if err != nil {
-		log.Fatal("encoding error:", err)
-	}
+	fmt.Fprintln(&b, fi.size, fi.path, fi.host, fi.lastmod, fi.lastacc)
 	return b.Bytes(), nil
 }
 
-// UnmarshalBinary modifies the receiver so it must take a pointer receiver.
+func (fi *FileInfo) build() {
+	fi.parts = strings.Split(fi.path, "/")
+	fi.buildPass()
+	fi.buildRunNumber()
+	fi.buildPeriod()
+	fi.buildIsRaw()
+}
+
+// GobDecode modifies the receiver so it must take a pointer receiver.
 func (fi *FileInfo) GobDecode(data []byte) error {
 	b := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(b)
-	var pfi PrivateFileInfo
-	err := dec.Decode(&pfi)
-	if err != nil {
-		fi = NewFileInfo(pfi.Size, pfi.Path, pfi.Host, pfi.LastMod, pfi.LastAcc)
-	}
+	_, err := fmt.Fscanln(b, &fi.size, &fi.path, &fi.host, &fi.lastmod, &fi.lastacc)
+	fi.build()
 	return err
 }
 
 func NewFileInfoBare(path, hostname string) *FileInfo {
 	fi := FileInfo{path: path, host: hostname}
-	fi.parts = strings.Split(path, "/")
-	fi.buildPass()
-	fi.buildRunNumber()
-	fi.buildPeriod()
-	fi.buildIsRaw()
+	fi.build()
 	return &fi
 }
 
 func NewFileInfo(size int64, path, hostname string, lastmod, lastacc int64) *FileInfo {
 	fi := FileInfo{size: size, path: path, host: hostname, lastmod: lastmod, lastacc: lastacc}
-	fi.parts = strings.Split(path, "/")
-	fi.buildPass()
-	fi.buildRunNumber()
-	fi.buildPeriod()
-	fi.buildIsRaw()
+	fi.build()
 	return &fi
+}
+
+func (fi FileInfo) LastMod() int64 {
+	return fi.lastmod
+}
+
+func (fi FileInfo) LastAcc() int64 {
+	return fi.lastacc
 }
 
 func (fi FileInfo) Path() string {
@@ -266,7 +259,7 @@ type FileInfoGroup struct {
 }
 
 func NewFileInfoGroup(fis FileInfoSlice, label string) *FileInfoGroup {
-	var size int64 = 0
+	var size int64
 	for _, f := range fis {
 		size += f.Size()
 	}
@@ -297,7 +290,7 @@ func (fig FileInfoGroup) String() string {
 // AgeInDays returns the mean number of days since the creation
 // of the file group
 func (fig FileInfoGroup) AgeInDays() float64 {
-	var d int64 = 0
+	var d int64
 	for _, f := range fig.FileInfoSlice {
 		d += f.lastmod
 	}

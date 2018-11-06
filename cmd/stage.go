@@ -33,7 +33,7 @@ func addToStore(db *bolt.DB, servers []string, files map[string][]string) {
 				buf.Reset()
 				err := enc.Encode(fi)
 				if err != nil {
-					log.Fatal("encode error:", err)
+					fmt.Errorf("encode error:%s b:%s", err, buf)
 				}
 				err = b.Put([]byte(file), buf.Bytes())
 				if err != nil {
@@ -79,10 +79,10 @@ func showRequest() {
 				var fi fstat.FileInfo
 				err := dec.Decode(&fi)
 				if err != nil {
-					fmt.Printf("key=%s err=%s", k, err)
-					log.Fatal()
+					// fmt.Printf("key=%s err=%s", k, err)
+					fmt.Errorf("decode error:%s b:%s", err, buf)
 				}
-				fmt.Printf("key=%s, value=%v\n", k, fi)
+				fmt.Printf("key=%s, value=%s\n", k, fi.String())
 			}
 
 			return nil
